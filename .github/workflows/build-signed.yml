@@ -1,0 +1,45 @@
+name: Build signed APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
+
+      - name: Restaurer le keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $RUNNER_TEMP/barka-release.jks
+
+      - name: Générer le wrapper Gradle
+        run: gradle wrapper --gradle-version 8.7
+
+      - name: Compiler l'APK signé
+        env:
+          BARKA_SIGNING_STORE_FILE: ${{ runner.temp }}/barka-release.jks
+          BARKA_SIGNING_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          BARKA_SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          BARKA_SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Vérifier la signature
+        run: |
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -n1)
+          echo "APK: $APK"
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n1)
+          $BT/apksigner verify --print-certs "$APK"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: barka-signed-apk
+          path: app/build/outputs/apk/release/*.apk
